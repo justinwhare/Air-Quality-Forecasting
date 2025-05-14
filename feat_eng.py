@@ -1,6 +1,6 @@
 import pandas as pd
 
-def get_pollutant_data(pollutant, lag, window_size, exog = False):
+def get_pollutant_data(pollutant, lag = None, window_size = None, exog = False):
     '''
     pollutant:      (str)
     lag:            (int) number of previous timesteps to include, in hours
@@ -8,57 +8,50 @@ def get_pollutant_data(pollutant, lag, window_size, exog = False):
     exog:           (bool) include exogenous features
     '''
 
-    #exogenous features can only be included if they would be known at time of forecast,
-    #a multistep forecasting model wouldn't have access to exogenous data from the future.
-    #the exogenous features will be included for the single time step model.
-    if exog == True:
-        cols = [pollutant, 'datetime', 'station', 'year', 'month', 'day', 'hour', 'TEMP', 'DEWP', 'PRES', 'WSPM', 'RAIN', 'wd']
-    elif exog == False:
-        cols = [pollutant, 'datetime', 'station', 'year', 'month', 'day', 'hour']
-    
+    data = pd.read_csv('output_data/cleaned_interp.csv', parse_dates = ['datetime'])
+    pollutant_list = ['PM2.5', 'PM10', 'NO2', 'SO2', 'CO', 'O3']
 
-    data = pd.read_csv('output_data/cleaned_interp.csv', usecols = cols, parse_dates = ['datetime'])
-   
+    #aggregate the dataset over the 12 stations to work with a single mean time series for simplicity
+    df = data[list(data.select_dtypes(include='float64').columns) + ['datetime']]
+    df = df.groupby('datetime').mean()
 
-    #creating time based, lag, and rolling window features to be used in the autoregressive model
-    data['day_of_week'] = data['datetime'].dt.dayofweek + 1
-
-    data.sort_values(['station', 'datetime'], inplace = True)
-    for i in range(1, lag + 1):
-        data[f'lag{i}'] = data.groupby('station')[pollutant].shift(i)
-
-    rolling_mean = data.groupby('station')[pollutant].rolling(window = window_size).mean()
-    data[f'roll_mean_{window_size}'] = rolling_mean.droplevel(0)
-
-
-    #creating lag and rolling window features for exogenous features if included
-    if exog == True:
-        data.sort_values(['station', 'datetime'], inplace = True)
+    #creating time based lag and rolling window features 
+    if lag:
         for i in range(1, lag + 1):
-            data[f'TEMP_lag{i}'] = data.groupby('station')['TEMP'].shift(i)
+            df[f'lag_{i}'] = df[pollutant].shift(i)
+    
+    if window_size:
+        df[f'roll_mean_{window_size}'] = df[pollutant].rolling(window = window_size).mean()
 
-        rolling_mean = data.groupby('station')['TEMP'].rolling(window = window_size).mean()
-        data[f'TEMP_roll_mean_{window_size}'] = rolling_mean.droplevel(0)
-
-
-    #creating target variable as pollutant level from future time step
-    data['target'] = data.groupby('station')[pollutant].shift(-1)
-
-
-    #dropping the NaN values created by the lag feature creation
-    data.dropna(inplace = True)
-
-
-    #dropping the station column only from the univariate dataset and aggregating the 12 station timeseries into a single timeseries 
-    if exog == False:
-        data = data.drop(['station', 'year', 'month', 'day', 'hour', 'day_of_week'], axis = 1).groupby('datetime').mean()
+    #engineering optional exogenous features
+    if exog == True:
+        for i in range(1, lag + 1):
+            df[f'TEMP_lag{i}'] = df['TEMP'].shift(i)
         
+        df[f'TEMP_roll_mean'] = df['TEMP'].rolling(window = window_size).mean()
 
-    #cast object columns to categorical data type for handling by xgboost
-    for col in data.select_dtypes(include='object').columns:
-        data[col] = data[col].astype('category')
+        #re-adding the non numerical columns after the aggregation
+        df['year'] = df.index.year
+        df['month'] = df.index.month
+        df['day'] = df.index.day
+        df['hour'] = df.index.hour
 
-    return data
+        #casting columns with object dtype to category for handling by xgboost
+        for col in df.select_dtypes(include = 'object').columns:
+            df[col] = df[col].astype('category')
+
+    #creating target variable as the next pollutant concentration value in the time series
+    df['target'] = df[pollutant].shift(-1)
+
+    #drop rows with NaN values formed by creation of lag and rolling features
+    df.dropna(inplace = True)
+
+    if exog == False:
+        pollutant_list.remove(pollutant)
+        return df.drop(['TEMP', 'DEWP', 'PRES', 'WSPM', 'RAIN'] + pollutant_list, axis = 1)
+    elif exog == True:
+        return df
+
     
 def split_data(data, train_end, val_end):
     '''
@@ -81,3 +74,4 @@ def split_data(data, train_end, val_end):
 
     return data_train, data_val, data_test
 
+#print(get_pollutant_data('PM2.5').index)
