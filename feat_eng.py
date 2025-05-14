@@ -1,5 +1,4 @@
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 
 def get_pollutant_data(pollutant, lag, window_size, exog = False):
     '''
@@ -50,6 +49,11 @@ def get_pollutant_data(pollutant, lag, window_size, exog = False):
     data.dropna(inplace = True)
 
 
+    #dropping the station column only from the univariate dataset and aggregating the 12 station timeseries into a single timeseries 
+    if exog == False:
+        data = data.drop(['station', 'year', 'month', 'day', 'hour', 'day_of_week'], axis = 1).groupby('datetime').mean()
+        
+
     #cast object columns to categorical data type for handling by xgboost
     for col in data.select_dtypes(include='object').columns:
         data[col] = data[col].astype('category')
@@ -63,9 +67,9 @@ def split_data(data, train_end, val_end):
     val_end:    (str) right boundary for validation set
     '''
     
-    temp_df = data.set_index(pd.to_datetime(data['datetime']))
-    temp_df.sort_index(inplace = True)
-    temp_df.drop('datetime', axis = 1, inplace = True)
+    temp_df = data#.set_index(pd.to_datetime(data['datetime']))
+    #temp_df.sort_index(inplace = True)
+    #temp_df.drop('datetime', axis = 1, inplace = True)
     
     data_train = temp_df.loc[:train_end, :]
     data_val = temp_df.loc[train_end:val_end, :]
