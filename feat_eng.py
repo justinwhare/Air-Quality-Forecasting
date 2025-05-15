@@ -2,10 +2,16 @@ import pandas as pd
 
 def get_pollutant_data(pollutant, lag = None, window_size = None, exog = False):
     '''
-    pollutant:      (str)
-    lag:            (int) number of previous timesteps to include, in hours
-    window_size:    (int) size of window for rolling variable calculation, in hours
-    exog:           (bool) include exogenous features
+    Function to gather raw pollutant data into a single dataframe
+
+    Args: 
+        pollutant:      (str) Name of pollutant to be included in dataframe, 'PM2.5', 'PM10', 'NO2', 'SO2', 'CO', 'O3'
+        lag:            (int) number of previous timesteps to include as lagged variables, in hours
+        window_size:    (int) size of window for rolling variable calculation, in hours
+        exog:           (bool) include exogenous features, 'TEMP', 'DEWP', 'PRES', 'WSPM', 'RAIN', 'year', 'month', 'day', 'hour'
+
+    Returns:
+        data:           (pd.Dataframe) Dataframe containing pollutant data aggregated over 12 stations and including possible time based and exogenous features
     '''
 
     data = pd.read_csv('output_data/cleaned_interp.csv', parse_dates = ['datetime'])
@@ -25,10 +31,12 @@ def get_pollutant_data(pollutant, lag = None, window_size = None, exog = False):
 
     #engineering optional exogenous features
     if exog == True:
-        for i in range(1, lag + 1):
-            df[f'TEMP_lag{i}'] = df['TEMP'].shift(i)
+        if lag:
+            for i in range(1, lag + 1):
+                df[f'TEMP_lag{i}'] = df['TEMP'].shift(i)
         
-        df[f'TEMP_roll_mean'] = df['TEMP'].rolling(window = window_size).mean()
+        if window_size:
+            df[f'TEMP_roll_mean'] = df['TEMP'].rolling(window = window_size).mean()
 
         #re-adding the non numerical columns after the aggregation
         df['year'] = df.index.year
@@ -55,23 +63,25 @@ def get_pollutant_data(pollutant, lag = None, window_size = None, exog = False):
     
 def split_data(data, train_end, val_end):
     '''
-    data:       (df) dataframe to be split
-    train_end:  (str) right boundary for training set
-    val_end:    (str) right boundary for validation set
+    Splits dataframe into train, validation, and test splits
+
+    Args:
+        data:       (pd.Dataframe) dataframe to be split
+        train_end:  (str) right boundary for training set
+        val_end:    (str) right boundary for validation set
+    
+    Returns:
+        data_train: (pd.Dataframe) Training Set
+        data_val:   (pd.Dataframe) Validation Set
+        data_test:  (pd.Dataframe) Test Set
     '''
     
-    temp_df = data#.set_index(pd.to_datetime(data['datetime']))
-    #temp_df.sort_index(inplace = True)
-    #temp_df.drop('datetime', axis = 1, inplace = True)
-    
-    data_train = temp_df.loc[:train_end, :]
-    data_val = temp_df.loc[train_end:val_end, :]
-    data_test = temp_df.loc[val_end:, :]
+    data_train = data.loc[:train_end, :]
+    data_val = data.loc[train_end:val_end, :]
+    data_test = data.loc[val_end:, :]
 
-    print(f"Dates train      : {data_train.index.min()} --- {data_train.index.max()}  (n={len(data_train)})")
-    print(f"Dates validation : {data_val.index.min()} --- {data_val.index.max()}  (n={len(data_val)})")
-    print(f"Dates test       : {data_test.index.min()} --- {data_test.index.max()}  (n={len(data_test)})")
+    print(f"Training Range      : {data_train.index.min()} to {data_train.index.max()}  (n={len(data_train)})")
+    print(f"Validation Range    : {data_val.index.min()} to {data_val.index.max()}  (n={len(data_val)})")
+    print(f"Test Range          : {data_test.index.min()} to {data_test.index.max()}  (n={len(data_test)})")
 
     return data_train, data_val, data_test
-
-#print(get_pollutant_data('PM2.5').index)
